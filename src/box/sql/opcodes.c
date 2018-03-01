@@ -129,7 +129,7 @@ const char *sqlite3OpcodeName(int i){
     /* 115 */ "Real"             OpHelp("r[P2]=P4"),
     /* 116 */ "IdxInsert"        OpHelp("key=r[P2]"),
     /* 117 */ "IdxDelete"        OpHelp("key=r[P2@P3]"),
-    /* 118 */ "Clear"            OpHelp(""),
+    /* 118 */ "Clear"            OpHelp("space id = P1"),
     /* 119 */ "ResetSorter"      OpHelp(""),
     /* 120 */ "ParseSchema2"     OpHelp("rows=r[P1@P2]"),
     /* 121 */ "ParseSchema3"     OpHelp("name=r[P1] sql=r[P1+1]"),

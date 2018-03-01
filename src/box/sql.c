@@ -57,6 +57,7 @@
 #include "session.h"
 #include "xrow.h"
 #include "iproto_constants.h"
+#include "rmean.h"
 
 static sqlite3 *db;
 
@@ -189,6 +190,35 @@ is_tarantool_error(int rc)
 		rc == SQL_TARANTOOL_ITERATOR_FAIL ||
 		rc == SQL_TARANTOOL_DELETE_FAIL ||
 		rc == SQL_TARANTOOL_INSERT_FAIL);
+}
+
+/**
+ * This function is analogue of process_rw() from box module.
+ * Apart of calling space_execute_dml(), it handles transaction
+ * routine and gathers rmean metrics.
+ *
+ * @param request Request to be executed.
+ * @param space Space to be updated.
+ *
+ * @retval 0 in case of success, -1 otherwise.
+ */
+static int
+sql_execute_dml(struct request *request, struct space *space)
+{
+	rmean_collect(rmean_box, request->type, 1);
+	if (access_check_space(space, PRIV_W) != 0)
+		return -1;
+	struct txn *txn = txn_begin_stmt(space);
+	if (txn == NULL)
+		return -1;
+	struct tuple *unused = NULL;
+	if (space_execute_dml(space, txn, request, &unused) != 0) {
+		txn_rollback_stmt();
+		return -1;
+	}
+	if (txn_commit_stmt(txn, request) != 0)
+		return -1;
+	return 0;
 }
 
 int tarantoolSqlite3CloseCursor(BtCursor *pCur)
@@ -658,44 +688,32 @@ int tarantoolSqlite3EphemeralClearTable(BtCursor *pCur)
 
 /*
  * Removes all instances from table.
+ * Iterate through the space and delete one by one all tuples.
  */
-int tarantoolSqlite3ClearTable(int iTable)
+int tarantoolSqlite3ClearTable(struct space *space)
 {
-	int space_id = SQLITE_PAGENO_TO_SPACEID(iTable);
-
-	/*
-	 *  There are two cases when we have to delete tuples one by one:
-	 *  1. When we are inside of another transaction, we can not use
-	 *  truncate, because it is a ddl. (prohibited in transactions)
-	 *  2. Truncate on system spaces is disallowed. (because of triggers)
-	 *   (main usecase is _sql_stat4 table editing)
-	 */
-	if (box_txn() || space_id < BOX_SYSTEM_ID_MAX) {
-		int primary_index_id = 0;
-		char *key;
-		uint32_t key_size;
-		box_tuple_t *tuple;
-		int rc;
-		box_iterator_t *iter;
-		iter = box_index_iterator(space_id, primary_index_id, ITER_ALL,
-					  nil_key, nil_key + sizeof(nil_key));
-		if (iter == NULL)
-			return SQL_TARANTOOL_ITERATOR_FAIL;
-		while (box_iterator_next(iter, &tuple) == 0 && tuple != NULL) {
-			key = tuple_extract_key(tuple,
-						box_iterator_key_def(iter),
+	uint32_t key_size;
+	box_tuple_t *tuple;
+	int rc;
+	struct request request;
+	memset(&request, 0, sizeof(request));
+	request.type = IPROTO_DELETE;
+	request.space_id = space->def->id;
+	struct index *pk = space_index(space, 0 /* PK */);
+	struct iterator *iter = index_create_iterator(pk, ITER_ALL, nil_key, 0);
+	if (iter == NULL)
+		return SQL_TARANTOOL_ITERATOR_FAIL;
+	while (iterator_next(iter, &tuple) == 0 && tuple != NULL) {
+		request.key = tuple_extract_key(tuple, pk->def->key_def,
 						&key_size);
-			rc = box_delete(space_id, primary_index_id, key,
-					key + key_size, NULL);
-			if (rc != 0) {
-				box_iterator_free(iter);
-				return SQL_TARANTOOL_DELETE_FAIL;
-			}
+		request.key_end = request.key + key_size;
+		rc = sql_execute_dml(&request, space);
+		if (rc != 0) {
+			iterator_delete(iter);
+			return SQL_TARANTOOL_DELETE_FAIL;
 		}
-		box_iterator_free(iter);
-	} else if (box_truncate(space_id) != 0) {
-		return SQL_TARANTOOL_DELETE_FAIL;
 	}
+	iterator_delete(iter);
 
 	return SQLITE_OK;
 }

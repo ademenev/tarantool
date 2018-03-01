@@ -118,7 +118,7 @@
 #define OP_Real          115 /* same as TK_FLOAT, synopsis: r[P2]=P4       */
 #define OP_IdxInsert     116 /* synopsis: key=r[P2]                        */
 #define OP_IdxDelete     117 /* synopsis: key=r[P2@P3]                     */
-#define OP_Clear         118
+#define OP_Clear         118 /* synopsis: space id = P1                    */
 #define OP_ResetSorter   119
 #define OP_ParseSchema2  120 /* synopsis: rows=r[P1@P2]                    */
 #define OP_ParseSchema3  121 /* synopsis: name=r[P1] sql=r[P1+1]           */
