@@ -2603,7 +2603,12 @@ sqlite3RefillIndex(Parse * pParse, Index * pIndex, int memRootPage)
 	sqlite3VdbeJumpHere(v, addr1);
 	if (memRootPage < 0)
 		sqlite3VdbeAddOp2(v, OP_Clear, tnum, 0);
-	sqlite3VdbeAddOp4(v, OP_OpenWrite, iIdx, tnum, 0,
+	struct space *space = space_by_id(SQLITE_PAGENO_TO_SPACEID(tnum));
+	assert(space != NULL);
+	int space_ptr_reg = ++pParse->nMem;
+	sqlite3VdbeAddOp4Int64(v, OP_Int64, 0, space_ptr_reg, 0,
+			       ((int64_t) space));
+	sqlite3VdbeAddOp4(v, OP_OpenWrite, iIdx, tnum, space_ptr_reg,
 			  (char *)pKey, P4_KEYINFO);
 	sqlite3VdbeChangeP5(v,
 			    OPFLAG_BULKCSR | ((memRootPage >= 0) ?

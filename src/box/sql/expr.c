@@ -35,7 +35,9 @@
  */
 #include <box/coll.h>
 #include "sqliteInt.h"
+#include "tarantoolInt.h"
 #include "box/session.h"
+#include "box/schema.h"
 
 /* Forward declarations */
 static void exprCodeBetween(Parse *, Expr *, int,
@@ -2586,8 +2588,16 @@ sqlite3FindInIndex(Parse * pParse,	/* Parsing context */
 							  pIdx->zName),
 							  P4_DYNAMIC);
 #endif
-					sqlite3VdbeAddOp2(v, OP_OpenRead, iTab,
-							  pIdx->tnum);
+					struct space *space =
+						space_by_id(SQLITE_PAGENO_TO_SPACEID(pIdx->tnum));
+					assert(space != NULL);
+					int space_ptr_reg = ++pParse->nMem;
+					sqlite3VdbeAddOp4Int64(v, OP_Int64, 0,
+							       space_ptr_reg, 0,
+							       ((int64_t) space));
+					sqlite3VdbeAddOp3(v, OP_OpenRead, iTab,
+							  pIdx->tnum,
+							  space_ptr_reg);
 					sqlite3VdbeSetP4KeyInfo(pParse, pIdx);
 					VdbeComment((v, "%s", pIdx->zName));
 					assert(IN_INDEX_INDEX_DESC ==

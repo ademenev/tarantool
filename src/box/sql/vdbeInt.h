@@ -378,6 +378,7 @@ struct Vdbe {
 	i64 nFkConstraint;	/* Number of imm. FK constraints this VM */
 	i64 nStmtDefCons;	/* Number of def. constraints when stmt started */
 	i64 nStmtDefImmCons;	/* Number of def. imm constraints when stmt started */
+	uint32_t schema_ver;	/* Schema version at the moment of VDBE creation. */
 
 	/*
 	 * In recursive triggers we can execute INSERT/UPDATE OR IGNORE

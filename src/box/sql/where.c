@@ -42,6 +42,8 @@
 #include "vdbeInt.h"
 #include "whereInt.h"
 #include "box/session.h"
+#include "box/schema.h"
+#include "tarantoolInt.h"
 
 /* Forward declaration of methods */
 static int whereLoopResize(sqlite3 *, WhereLoop *, int);
@@ -4606,7 +4608,15 @@ sqlite3WhereBegin(Parse * pParse,	/* The parser context */
 			assert(pIx->pSchema == pTab->pSchema);
 			assert(iIndexCur >= 0);
 			if (op) {
-				sqlite3VdbeAddOp2(v, op, iIndexCur, pIx->tnum);
+				struct space *space =
+					space_by_id(SQLITE_PAGENO_TO_SPACEID(pIx->tnum));
+				assert(space != NULL);
+				int space_ptr_reg = ++pParse->nMem;
+				sqlite3VdbeAddOp4Int64(v, OP_Int64, 0,
+						       space_ptr_reg, 0,
+						       ((int64_t) space));
+				sqlite3VdbeAddOp3(v, op, iIndexCur, pIx->tnum,
+						  space_ptr_reg);
 				sqlite3VdbeSetP4KeyInfo(pParse, pIx);
 				if ((pLoop->wsFlags & WHERE_CONSTRAINT) != 0
 				    && (pLoop->

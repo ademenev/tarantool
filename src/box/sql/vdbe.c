@@ -3217,9 +3217,17 @@ case OP_OpenWrite:
 
 	assert(p2 >= 1);
 	pBtCur = pCur->uc.pCursor;
-	pBtCur->space = space_by_id(SQLITE_PAGENO_TO_SPACEID(p2));
+	if (box_schema_version() == p->schema_ver) {
+		pIn3 = &aMem[pOp->p3];
+		/* Make sure that 64-bit pointer can fit into int64_t. */
+		assert(sizeof(pBtCur->space) >= sizeof(pIn3->u.i));
+		pBtCur->space = ((struct space *) pIn3->u.i);
+	} else {
+		pBtCur->space = space_by_id(SQLITE_PAGENO_TO_SPACEID(p2));
+	}
+	assert(pBtCur->space != NULL);
 	pBtCur->index = space_index(pBtCur->space, SQLITE_PAGENO_TO_INDEXID(p2));
-	assert(pBtCur->space != NULL && pBtCur->index != NULL);
+	assert(pBtCur->index != NULL);
 	pBtCur->eState = CURSOR_INVALID;
 	pBtCur->curFlags |= BTCF_TaCursor;
 	pCur->pKeyInfo = pKeyInfo;

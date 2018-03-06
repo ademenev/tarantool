@@ -35,7 +35,9 @@
  */
 #include <box/coll.h>
 #include "sqliteInt.h"
+#include "tarantoolInt.h"
 #include "box/session.h"
+#include "box/schema.h"
 
 /*
  * Trace output macros
@@ -6187,8 +6189,15 @@ sqlite3Select(Parse * pParse,		/* The parser context */
 				}
 
 				/* Open a read-only cursor, execute the OP_Count, close the cursor. */
+				struct space *space =
+					space_by_id(SQLITE_PAGENO_TO_SPACEID(iRoot));
+				assert(space != NULL);
+				int space_ptr_reg = ++pParse->nMem;
+				sqlite3VdbeAddOp4Int64(v, OP_Int64, 0,
+						       space_ptr_reg, 0,
+						       ((int64_t) space));
 				sqlite3VdbeAddOp4Int(v, OP_OpenRead, iCsr,
-						     iRoot, 0, 1);
+						     iRoot, space_ptr_reg, 1);
 				if (pKeyInfo) {
 					sqlite3VdbeChangeP4(v, -1,
 							    (char *)pKeyInfo,

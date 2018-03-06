@@ -34,7 +34,9 @@
  * to handle INSERT statements in SQLite.
  */
 #include "sqliteInt.h"
+#include "tarantoolInt.h"
 #include "box/session.h"
+#include "box/schema.h"
 
 /*
  * Generate code that will open pTab as cursor iCur.
@@ -51,7 +53,12 @@ sqlite3OpenTable(Parse * pParse,	/* Generate code into this VDBE */
 	Index *pPk = sqlite3PrimaryKeyIndex(pTab);
 	assert(pPk != 0);
 	assert(pPk->tnum == pTab->tnum);
-	sqlite3VdbeAddOp3(v, opcode, iCur, pPk->tnum, 0);
+	struct space *space = space_by_id(SQLITE_PAGENO_TO_SPACEID(pPk->tnum));
+	assert(space != NULL);
+	int space_ptr_reg = ++pParse->nMem;
+	sqlite3VdbeAddOp4Int64(v, OP_Int64, 0, space_ptr_reg, 0,
+			       ((int64_t) space));
+	sqlite3VdbeAddOp3(v, opcode, iCur, pPk->tnum, space_ptr_reg);
 	sqlite3VdbeSetP4KeyInfo(pParse, pPk);
 	VdbeComment((v, "%s", pTab->zName));
 }
@@ -183,7 +190,7 @@ readsTable(Parse * p, Table * pTab)
 	for (i = 1; i < iEnd; i++) {
 		VdbeOp *pOp = sqlite3VdbeGetOp(v, i);
 		assert(pOp != 0);
-		if (pOp->opcode == OP_OpenRead && pOp->p3 == 0) {
+		if (pOp->opcode == OP_OpenRead) {
 			Index *pIndex;
 			int tnum = pOp->p2;
 			if (tnum == pTab->tnum) {
@@ -1560,6 +1567,11 @@ sqlite3OpenTableAndIndices(Parse * pParse,	/* Parsing context */
 		*piDataCur = iDataCur;
 	if (piIdxCur)
 		*piIdxCur = iBase;
+	struct space *space = space_by_id(SQLITE_PAGENO_TO_SPACEID(pTab->tnum));
+	assert(space != NULL);
+	int space_ptr_reg = ++pParse->nMem;
+	sqlite3VdbeAddOp4Int64(v, OP_Int64, 0, space_ptr_reg, 0,
+			       ((int64_t) space));
 
 	/* One iteration of this cycle adds OpenRead/OpenWrite which
 	 * opens cursor for current index.
@@ -1607,7 +1619,8 @@ sqlite3OpenTableAndIndices(Parse * pParse,	/* Parsing context */
 				p5 = 0;
 			}
 			if (aToOpen == 0 || aToOpen[i + 1]) {
-				sqlite3VdbeAddOp2(v, op, iIdxCur, pIdx->tnum);
+				sqlite3VdbeAddOp3(v, op, iIdxCur, pIdx->tnum,
+						  space_ptr_reg);
 				sqlite3VdbeSetP4KeyInfo(pParse, pIdx);
 				sqlite3VdbeChangeP5(v, p5);
 				VdbeComment((v, "%s", pIdx->zName));
@@ -1911,10 +1924,24 @@ xferOptimization(Parse * pParse,	/* Parser context */
 				break;
 		}
 		assert(pSrcIdx);
-		sqlite3VdbeAddOp2(v, OP_OpenRead, iSrc, pSrcIdx->tnum);
+		struct space *space_src =
+			space_by_id(SQLITE_PAGENO_TO_SPACEID(pSrcIdx->tnum));
+		assert(space_src != NULL);
+		int space_src_ptr_reg = ++pParse->nMem;
+		sqlite3VdbeAddOp4Int64(v, OP_Int64, 0, space_src_ptr_reg, 0,
+				       ((int64_t) space_src));
+		sqlite3VdbeAddOp3(v, OP_OpenRead, iSrc, pSrcIdx->tnum,
+				  space_src_ptr_reg);
 		sqlite3VdbeSetP4KeyInfo(pParse, pSrcIdx);
 		VdbeComment((v, "%s", pSrcIdx->zName));
-		sqlite3VdbeAddOp2(v, OP_OpenWrite, iDest, pDestIdx->tnum);
+		struct space *space_dest =
+			space_by_id(SQLITE_PAGENO_TO_SPACEID(pDestIdx->tnum));
+		assert(space_dest != NULL);
+		int space_dest_ptr_reg = ++pParse->nMem;
+		sqlite3VdbeAddOp4Int64(v, OP_Int64, 0, space_dest_ptr_reg, 0,
+				       ((int64_t) space_dest));
+		sqlite3VdbeAddOp3(v, OP_OpenWrite, iDest, pDestIdx->tnum,
+				  space_dest_ptr_reg);
 		sqlite3VdbeSetP4KeyInfo(pParse, pDestIdx);
 		sqlite3VdbeChangeP5(v, OPFLAG_BULKCSR);
 		VdbeComment((v, "%s", pDestIdx->zName));
