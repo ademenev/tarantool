@@ -79,6 +79,14 @@ enum iproto_key {
 	/* Leave a gap between request keys and response keys */
 	IPROTO_DATA = 0x30,
 	IPROTO_ERROR = 0x31,
+	/**
+	 * Tarantool supports two push types: binary and text.
+	 * A text push can be distinguished from a response by a
+	 * prefix "push:".
+	 * Binary push is encoded using IPROTO_PUSH key in a
+	 * message body, which replaces IPROTO_DATA.
+	 */
+	IPROTO_PUSH = 0x32,
 	IPROTO_KEY_MAX
 };
 

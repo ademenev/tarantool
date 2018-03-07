@@ -59,7 +59,7 @@ end
 --
 -- Evaluate command on remote instance
 --
-local function remote_eval(self, line)
+local function remote_eval(self, line, opts)
     if not line or self.remote.state ~= 'active' then
         local err = self.remote.error
         self.remote:close()
@@ -74,7 +74,7 @@ local function remote_eval(self, line)
     --
     -- execute line
     --
-    local ok, res = pcall(self.remote.eval, self.remote, line)
+    local ok, res = pcall(self.remote.eval, self.remote, line, opts)
     return ok and res or format(false, res)
 end
 
@@ -310,7 +310,7 @@ local function connect(uri, opts)
 
     -- override methods
     self.remote = remote
-    self.eval = remote_eval
+    self.eval = function(s, l) return remote_eval(s, l, {on_push = opts.on_push}) end
     self.prompt = string.format("%s:%s", self.remote.host, self.remote.port)
     self.completion = function (str, pos1, pos2)
         local c = string.format(

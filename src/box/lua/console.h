@@ -39,6 +39,14 @@ struct lua_State;
 void
 tarantool_lua_console_init(struct lua_State *L);
 
+/**
+ * Encode Lua object into YAML string.
+ * @param Lua object to encode on top of a stack.
+ * @retval Lua string.
+ */
+int
+lbox_console_format(struct lua_State *L);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

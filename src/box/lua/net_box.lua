@@ -26,6 +26,8 @@ local communicate     = internal.communicate
 local encode_auth     = internal.encode_auth
 local encode_select   = internal.encode_select
 local decode_greeting = internal.decode_greeting
+local text_is_push    = internal.text_is_push
+local body_is_push    = internal.body_is_push
 
 local sequence_mt      = { __serialize = 'sequence' }
 local TIMEOUT_INFINITY = 500 * 365 * 86400
@@ -38,6 +40,7 @@ local IPROTO_SYNC_KEY      = 0x01
 local IPROTO_SCHEMA_VERSION_KEY = 0x05
 local IPROTO_DATA_KEY      = 0x30
 local IPROTO_ERROR_KEY     = 0x31
+local IPROTO_PUSH_KEY      = 0x32
 local IPROTO_GREETING_SIZE = 128
 
 -- select errors from box.error
@@ -229,7 +232,8 @@ local function create_transport(host, port, user, password, callback)
     end
 
     -- REQUEST/RESPONSE --
-    local function perform_request(timeout, buffer, method, schema_version, ...)
+    local function perform_request(timeout, buffer, method, on_push,
+                                   schema_version, ...)
         if state ~= 'active' then
             return last_errno or E_NO_CONNECTION, last_error
         end
@@ -242,7 +246,7 @@ local function create_transport(host, port, user, password, callback)
         local id = next_request_id
         method_codec[method](send_buf, id, schema_version, ...)
         next_request_id = next_id(id)
-        local request = table_new(0, 6) -- reserve space for 6 keys
+        local request = table_new(0, 7) -- reserve space for 7 keys
         request.client = fiber_self()
         request.method = method
         request.schema_version = schema_version
@@ -253,6 +257,17 @@ local function create_transport(host, port, user, password, callback)
             if not state_cond:wait(timeout) then
                 requests[id] = nil
                 return E_TIMEOUT, 'Timeout exceeded'
+            end
+            if request.messages then
+                -- Multiple push messages can appear on a single
+                -- event loop iteration.
+                local messages = request.messages
+                request.messages = nil
+                if on_push then
+                    for _, m in pairs(messages) do
+                        on_push(m)
+                    end
+                end
             end
         until requests[id] == nil -- i.e. completed (beware spurious wakeups)
         return request.errno, request.response
@@ -270,12 +285,12 @@ local function create_transport(host, port, user, password, callback)
         if request == nil then -- nobody is waiting for the response
             return
         end
-        requests[id] = nil
         local status = hdr[IPROTO_STATUS_KEY]
         local body, body_end_check
 
         if status ~= 0 then
             -- Handle errors
+            requests[id] = nil
             body, body_end_check = decode(body_rpos)
             assert(body_end == body_end_check, "invalid xrow length")
             request.errno = band(status, IPROTO_ERRNO_MASK)
@@ -290,7 +305,16 @@ local function create_transport(host, port, user, password, callback)
             local body_len = body_end - body_rpos
             local wpos = buffer:alloc(body_len)
             ffi.copy(wpos, body_rpos, body_len)
-            request.response = tonumber(body_len)
+            if body_is_push(body_rpos) then
+                if request.messages then
+                    table.insert(request.messages, tonumber(body_len))
+                else
+                    request.messages = {tonumber(body_len)}
+                end
+            else
+                requests[id] = nil
+                request.response = tonumber(body_len)
+            end
             wakeup_client(request.client)
             return
         end
@@ -298,7 +322,18 @@ local function create_transport(host, port, user, password, callback)
         -- Decode xrow.body[DATA] to Lua objects
         body, body_end_check = decode(body_rpos)
         assert(body_end == body_end_check, "invalid xrow length")
-        request.response = body[IPROTO_DATA_KEY]
+        if body[IPROTO_PUSH_KEY] then
+            assert(#body[IPROTO_PUSH_KEY] == 1)
+            assert(not body[IPROTO_DATA_KEY])
+            if request.messages then
+                table.insert(request.messages, body[IPROTO_PUSH_KEY][1])
+            else
+                request.messages = {body[IPROTO_PUSH_KEY][1]}
+            end
+        else
+            requests[id] = nil
+            request.response = body[IPROTO_DATA_KEY]
+        end
         wakeup_client(request.client)
     end
 
@@ -345,9 +380,16 @@ local function create_transport(host, port, user, password, callback)
         if err then
             return err, delim_pos
         else
-            local response = ffi.string(recv_buf.rpos, delim_pos + #delim)
+            local response
+            local is_push = text_is_push(recv_buf.rpos, delim_pos + #delim)
+            if not is_push then
+                response = ffi.string(recv_buf.rpos, delim_pos + #delim)
+            else
+                -- 5 - len of 'push:' prefix of a message.
+                response = ffi.string(recv_buf.rpos + 5, delim_pos + #delim - 5)
+            end
             recv_buf.rpos = recv_buf.rpos + delim_pos + #delim
-            return nil, response
+            return nil, response, is_push
         end
     end
 
@@ -408,18 +450,26 @@ local function create_transport(host, port, user, password, callback)
 
     console_sm = function(rid)
         local delim = '\n...\n'
-        local err, response = send_and_recv_console()
+        local err, response, is_push = send_and_recv_console()
         if err then
             return error_sm(err, response)
         else
             local request = requests[rid]
-            if request == nil then -- nobody is waiting for the response
-                return
+            if request then
+                if is_push then
+                    -- In a console mode it is impossible to
+                    -- get multiple pushes on a single event loop
+                    -- iteration.
+                    assert(not request.messages)
+                    request.messages = {response}
+                else
+                    requests[rid] = nil
+                    request.response = response
+                    rid = next_id(rid)
+                end
+                wakeup_client(request.client)
+                return console_sm(rid)
             end
-            requests[rid] = nil
-            request.response = response
-            wakeup_client(request.client)
-            return console_sm(next_id(rid))
         end
     end
 
@@ -761,7 +811,8 @@ function remote_methods:_request(method, opts, ...)
             timeout = deadline and max(0, deadline - fiber_clock())
         end
         err, res = perform_request(timeout, buffer, method,
-                                   self.schema_version, ...)
+                                   opts and opts.on_push, self.schema_version,
+                                   ...)
         if not err and buffer ~= nil then
             return res -- the length of xrow.body
         elseif not err then
@@ -791,7 +842,7 @@ function remote_methods:ping(opts)
         timeout = deadline and max(0, deadline - fiber_clock())
                             or (opts and opts.timeout)
     end
-    local err = self._transport.perform_request(timeout, nil, 'ping',
+    local err = self._transport.perform_request(timeout, nil, 'ping', nil,
                                                 self.schema_version)
     return not err or err == E_WRONG_SCHEMA_VERSION
 end
@@ -956,8 +1007,16 @@ console_methods.on_disconnect = remote_methods.on_disconnect
 console_methods.on_connect = remote_methods.on_connect
 console_methods.is_connected = remote_methods.is_connected
 console_methods.wait_state = remote_methods.wait_state
-function console_methods:eval(line, timeout)
+function console_methods:eval(line, opts)
     check_remote_arg(self, 'eval')
+    local timeout
+    local on_push
+    if type(opts) == 'table' then
+        timeout = opts.timeout or TIMEOUT_INFINITY
+        on_push = opts.on_push
+    else
+        timeout = opts
+    end
     local err, res
     local transport = self._transport
     local pr = transport.perform_request
@@ -968,10 +1027,10 @@ function console_methods:eval(line, timeout)
     end
     if self.protocol == 'Binary' then
         local loader = 'return require("console").eval(...)'
-        err, res = pr(timeout, nil, 'eval', nil, loader, {line})
+        err, res = pr(timeout, nil, 'eval', on_push, nil, loader, {line})
     else
         assert(self.protocol == 'Lua console')
-        err, res = pr(timeout, nil, 'inject', nil, line..'$EOF$\n')
+        err, res = pr(timeout, nil, 'inject', on_push, nil, line..'$EOF$\n')
     end
     if err then
         box.error({code = err, reason = res})

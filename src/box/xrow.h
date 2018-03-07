@@ -50,6 +50,10 @@ enum {
 	XROW_HEADER_LEN_MAX = 40,
 	XROW_BODY_LEN_MAX = 128,
 	IPROTO_HEADER_LEN = 28,
+	/** 7 = sizeof(iproto_body_bin). */
+	IPROTO_SELECT_HEADER_LEN = IPROTO_HEADER_LEN + 7,
+	/** 3 = sizeof(iproto_body_push_bin). */
+	IPROTO_PUSH_HEADER_LEN = IPROTO_HEADER_LEN + 3,
 };
 
 struct xrow_header {
@@ -344,8 +348,18 @@ iproto_header_encode(char *data, uint32_t type, uint64_t sync,
 struct obuf;
 struct obuf_svp;
 
+/**
+ * Reserve obuf space for a header, which depends on a response
+ * size.
+ */
 int
-iproto_prepare_select(struct obuf *buf, struct obuf_svp *svp);
+iproto_prepare_header(struct obuf *buf, struct obuf_svp *svp, size_t size);
+
+static inline int
+iproto_prepare_select(struct obuf *buf, struct obuf_svp *svp)
+{
+	return iproto_prepare_header(buf, svp, IPROTO_SELECT_HEADER_LEN);
+}
 
 /**
  * Write select header to a preallocated buffer.
@@ -354,6 +368,16 @@ iproto_prepare_select(struct obuf *buf, struct obuf_svp *svp);
 void
 iproto_reply_select(struct obuf *buf, struct obuf_svp *svp, uint64_t sync,
 		    uint32_t schema_version, uint32_t count);
+
+static inline int
+iproto_prepare_push(struct obuf *buf, struct obuf_svp *svp)
+{
+	return iproto_prepare_header(buf, svp, IPROTO_PUSH_HEADER_LEN);
+}
+
+void
+iproto_reply_push(struct obuf *buf, struct obuf_svp *svp, uint64_t sync,
+		  uint32_t schema_version);
 
 /**
  * Encode iproto header with IPROTO_OK response code.

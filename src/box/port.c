@@ -143,6 +143,12 @@ port_dump_16(struct port *port, struct obuf *out)
 	return port->vtab->dump_16(port, out);
 }
 
+const char *
+port_dump_raw(struct port *port, uint32_t *size)
+{
+	return port->vtab->dump_raw(port, size);
+}
+
 void
 port_init(void)
 {
@@ -159,5 +165,6 @@ port_free(void)
 const struct port_vtab port_tuple_vtab = {
 	.dump = port_tuple_dump,
 	.dump_16 = port_tuple_dump_16,
+	.dump_raw = NULL,
 	.destroy = port_tuple_destroy,
 };

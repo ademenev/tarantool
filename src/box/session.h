@@ -59,6 +59,7 @@ enum session_type {
 extern const char *session_type_strs[];
 
 struct session_owner_vtab;
+struct port;
 
 /**
  * Object to store session type specific data. For example, IProto
@@ -78,7 +79,17 @@ struct session_owner_vtab {
 	void (*free)(struct session_owner *);
 	/** Get the descriptor of an owner, if has. Else -1. */
 	int (*fd)(const struct session_owner *);
+	/** Push a port data into a session owner's channel. */
+	int (*push)(struct session_owner *, uint64_t, struct port *);
 };
+
+/**
+ * In a common case, a session does not support push. This
+ * function always returns -1 and sets ER_UNSUPPORTED error.
+ */
+int
+generic_session_owner_push(struct session_owner *owner, uint64_t sync,
+			   struct port *port);
 
 static inline struct session_owner *
 session_owner_dup(struct session_owner *owner)
@@ -140,6 +151,12 @@ static inline int
 session_fd(const struct session *session)
 {
 	return session->owner->vtab->fd(session->owner);
+}
+
+static inline int
+session_push(struct session *session, uint64_t sync, struct port *port)
+{
+	return session->owner->vtab->push(session->owner, sync, port);
 }
 
 /**

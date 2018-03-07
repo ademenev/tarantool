@@ -174,7 +174,8 @@ const char *iproto_key_strs[IPROTO_KEY_MAX] = {
 	NULL,               /* 0x2e */
 	NULL,               /* 0x2f */
 	"data",             /* 0x30 */
-	"error"             /* 0x31 */
+	"error",            /* 0x31 */
+	"push",             /* 0x32 */
 };
 
 const char *vy_page_info_key_strs[VY_PAGE_INFO_KEY_MAX] = {

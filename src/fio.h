@@ -109,6 +109,22 @@ int
 fio_writen(int fd, const void *buf, size_t count);
 
 /**
+ * Write the given buffer with no retrying for partial writes,
+ * and ignore transient write errors: EINTR, EWOULDBLOCK and
+ * EAGAIN - these errors are not logged, and the function returns
+ * 0.
+ * @param fd File descriptor to write to.
+ * @param buf Buffer to write.
+ * @param count Size of @a buf.
+ *
+ * @retval  -1 Non-transient error.
+ * @retval   0 Nothing to write, or a transient error.
+ * @retval > 0 Written byte count.
+ */
+int
+fio_write_silent(int fd, const void *buf, size_t count);
+
+/**
  * A simple wrapper around writev().
  * Re-tries write in case of EINTR.
  * In case of a serious error, writes a message to the error log.

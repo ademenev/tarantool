@@ -43,6 +43,9 @@
 #include "scramble.h"
 #include "iproto_constants.h"
 
+static_assert(IPROTO_DATA < 0x7f && IPROTO_PUSH < 0x7f,
+	      "encoded IPROTO_BODY keys must fit into one byte");
+
 int
 xrow_header_decode(struct xrow_header *header, const char **pos,
 		   const char *end)
@@ -231,12 +234,28 @@ struct PACKED iproto_body_bin {
 	uint32_t v_data_len;               /* string length of array size */
 };
 
+static_assert(sizeof(struct iproto_body_bin) + IPROTO_HEADER_LEN ==
+	      IPROTO_SELECT_HEADER_LEN, "size of the prepared select");
+
 static const struct iproto_body_bin iproto_body_bin = {
 	0x81, IPROTO_DATA, 0xdd, 0
 };
 
 static const struct iproto_body_bin iproto_error_bin = {
 	0x81, IPROTO_ERROR, 0xdb, 0
+};
+
+struct PACKED iproto_body_push_bin {
+	uint8_t m_body;       /* MP_MAP */
+	uint8_t k_data;       /* IPROTO_PUSH */
+	uint8_t v_data;       /* 1-size MP_ARRAY */
+};
+
+static_assert(sizeof(struct iproto_body_push_bin) + IPROTO_HEADER_LEN ==
+	      IPROTO_PUSH_HEADER_LEN, "size of the prepared push");
+
+static const struct iproto_body_push_bin iproto_push_bin = {
+	0x81, IPROTO_PUSH, 0x91
 };
 
 /** Return a 4-byte numeric error code, with status flags. */
@@ -337,23 +356,21 @@ iproto_write_error(int fd, const struct error *e, uint32_t schema_version,
 	(void) write(fd, e->errmsg, msg_len);
 }
 
-enum { SVP_SIZE = IPROTO_HEADER_LEN  + sizeof(iproto_body_bin) };
-
 int
-iproto_prepare_select(struct obuf *buf, struct obuf_svp *svp)
+iproto_prepare_header(struct obuf *buf, struct obuf_svp *svp, size_t size)
 {
 	/**
 	 * Reserve memory before taking a savepoint.
 	 * This ensures that we get a contiguous chunk of memory
 	 * and the savepoint is pointing at the beginning of it.
 	 */
-	void *ptr = obuf_reserve(buf, SVP_SIZE);
+	void *ptr = obuf_reserve(buf, size);
 	if (ptr == NULL) {
-		diag_set(OutOfMemory, SVP_SIZE, "obuf", "reserve");
+		diag_set(OutOfMemory, size, "obuf_reserve", "ptr");
 		return -1;
 	}
 	*svp = obuf_create_svp(buf);
-	ptr = obuf_alloc(buf, SVP_SIZE);
+	ptr = obuf_alloc(buf, size);
 	assert(ptr !=  NULL);
 	return 0;
 }
@@ -371,6 +388,17 @@ iproto_reply_select(struct obuf *buf, struct obuf_svp *svp, uint64_t sync,
 	body.v_data_len = mp_bswap_u32(count);
 
 	memcpy(pos + IPROTO_HEADER_LEN, &body, sizeof(body));
+}
+
+void
+iproto_reply_push(struct obuf *buf, struct obuf_svp *svp, uint64_t sync,
+		  uint32_t schema_version)
+{
+	char *pos = (char *) obuf_svp_to_ptr(buf, svp);
+	iproto_header_encode(pos, IPROTO_OK, sync, schema_version,
+			     obuf_size(buf) - svp->used - IPROTO_HEADER_LEN);
+	memcpy(pos + IPROTO_HEADER_LEN, &iproto_push_bin,
+	       sizeof(iproto_push_bin));
 }
 
 int

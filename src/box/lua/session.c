@@ -31,6 +31,7 @@
 #include "session.h"
 #include "lua/utils.h"
 #include "lua/trigger.h"
+#include "lua/msgpack.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -41,6 +42,10 @@
 #include "box/session.h"
 #include "box/user.h"
 #include "box/schema.h"
+#include "box/port.h"
+#include "box/lua/console.h"
+#include "fio.h"
+#include "small/obuf.h"
 
 /** Owner of a console session. */
 struct console_session_owner {
@@ -55,10 +60,26 @@ console_session_owner_dup(struct session_owner *owner);
 static int
 console_session_owner_fd(const struct session_owner *owner);
 
+/**
+ * Send "push:" prefix + message in a blocking mode, with no
+ * yields, to a console socket.
+ * @param owner Console session owner.
+ * @param sync Sync. It is unused since a text protocol has no
+ *        syncs.
+ * @param port Port with text to dump.
+ *
+ * @retval -1 Memory or IO error.
+ * @retval  0 Success.
+ */
+static int
+console_session_owner_push(struct session_owner *owner, uint64_t sync,
+			   struct port *port);
+
 static const struct session_owner_vtab console_session_owner_vtab = {
 	/* .dup = */ console_session_owner_dup,
 	/* .delete = */ (void (*)(struct session_owner *)) free,
 	/* .fd = */ console_session_owner_fd,
+	/* .push = */ console_session_owner_push,
 };
 
 static struct session_owner *
@@ -88,6 +109,45 @@ console_session_owner_create(struct console_session_owner *owner, int fd)
 	owner->base.type = SESSION_TYPE_CONSOLE;
 	owner->base.vtab = &console_session_owner_vtab;
 	owner->fd = fd;
+}
+
+/**
+ * Write @a text into @a fd in a blocking mode, ignoring transient
+ * socket errors.
+ * @param fd Console descriptor.
+ * @param text Text to send.
+ * @param len Length of @a text.
+ */
+static inline int
+console_do_push(int fd, const char *text, uint32_t len)
+{
+	while (len > 0) {
+		int written = fio_write_silent(fd, text, len);
+		if (written < 0)
+			return -1;
+		assert((uint32_t) written <= len);
+		len -= written;
+		text += written;
+	}
+	return 0;
+}
+
+static int
+console_session_owner_push(struct session_owner *owner, uint64_t sync,
+			   struct port *port)
+{
+	/* Console has no sync. */
+	(void) sync;
+	assert(owner->vtab == &console_session_owner_vtab);
+	int fd = console_session_owner_fd(owner);
+	uint32_t text_len;
+	const char *text = port_dump_raw(port, &text_len);
+	if (text == NULL ||
+	    console_do_push(fd, "push:", strlen("push:")) != 0 ||
+	    console_do_push(fd, text, text_len) != 0)
+		return -1;
+	else
+		return 0;
 }
 
 static const char *sessionlib_name = "box.session";
@@ -419,6 +479,116 @@ lbox_push_on_access_denied_event(struct lua_State *L, void *event)
 }
 
 /**
+ * Port to push a message from Lua.
+ */
+struct lua_push_port {
+	const struct port_vtab *vtab;
+	/**
+	 * Lua state, containing data to dump on top of the stack.
+	 */
+	struct lua_State *L;
+};
+
+/**
+ * Lua push port supports two dump types: usual and raw. Raw dump
+ * encodes a message as a YAML formatted text, usual dump encodes
+ * the message as MessagePack right into an output buffer.
+ */
+static int
+lua_push_port_dump_msgpack(struct port *port, struct obuf *out);
+
+static const char *
+lua_push_port_dump_text(struct port *port, uint32_t *size);
+
+static const struct port_vtab lua_push_port_vtab = {
+	.dump = lua_push_port_dump_msgpack,
+	/*
+	 * Dump_16 has no sense, since push appears since 1.10
+	 * protocol.
+	 */
+	.dump_16 = NULL,
+	.dump_raw = lua_push_port_dump_text,
+	.destroy = NULL,
+};
+
+static void
+obuf_error_cb(void *ctx)
+{
+	*((int *)ctx) = -1;
+}
+
+static int
+lua_push_port_dump_msgpack(struct port *port, struct obuf *out)
+{
+	struct lua_push_port *lua_port = (struct lua_push_port *) port;
+	assert(lua_port->vtab == &lua_push_port_vtab);
+	struct mpstream stream;
+	int rc = 0;
+	/*
+	 * Do not use luamp_error to allow a caller to clear the
+	 * obuf, if it already has allocated something (for
+	 * example, iproto push reserves memory for a header).
+	 */
+	mpstream_init(&stream, out, obuf_reserve_cb, obuf_alloc_cb,
+		      obuf_error_cb, &rc);
+	luamp_encode(lua_port->L, luaL_msgpack_default, &stream, 1);
+	if (rc != 0)
+		return -1;
+	mpstream_flush(&stream);
+	return 0;
+}
+
+static const char *
+lua_push_port_dump_text(struct port *port, uint32_t *size)
+{
+	struct lua_push_port *lua_port = (struct lua_push_port *) port;
+	assert(lua_port->vtab == &lua_push_port_vtab);
+	lbox_console_format(lua_port->L);
+	assert(lua_isstring(lua_port->L, -1));
+	size_t len;
+	const char *result = lua_tolstring(lua_port->L, -1, &len);
+	*size = (uint32_t) len;
+	return result;
+}
+
+/**
+ * Push a message using a protocol, depending on a session type.
+ * @param data Data to push, first argument on a stack.
+ * @param opts Options. Now requires a single possible option -
+ *        sync. Second argument on a stack.
+ */
+static int
+lbox_session_push(struct lua_State *L)
+{
+	if (lua_gettop(L) != 2 || !lua_istable(L, 2)) {
+usage_error:
+		return luaL_error(L, "Usage: box.session.push(data, opts)");
+	}
+	lua_getfield(L, 2, "sync");
+	if (! lua_isnumber(L, 3))
+		goto usage_error;
+	double lua_sync = lua_tonumber(L, 3);
+	lua_pop(L, 1);
+	uint64_t sync = (uint64_t) lua_sync;
+	if (lua_sync != sync)
+		goto usage_error;
+	struct lua_push_port port;
+	port.vtab = &lua_push_port_vtab;
+	port.L = L;
+	/*
+	 * Pop the opts - they must not be pushed. Leave only data
+	 * on a stack.
+	 */
+	lua_remove(L, 2);
+	if (session_push(current_session(), sync, (struct port *) &port) != 0) {
+		return luaT_error(L);
+	} else {
+		lua_pushboolean(L, true);
+		return 1;
+	}
+}
+
+/**
  * Sets trigger on_access_denied.
  * For test purposes only.
  */
@@ -489,6 +659,7 @@ box_lua_session_init(struct lua_State *L)
 		{"on_disconnect", lbox_session_on_disconnect},
 		{"on_auth", lbox_session_on_auth},
 		{"on_access_denied", lbox_session_on_access_denied},
+		{"push", lbox_session_push},
 		{NULL, NULL}
 	};
 	luaL_register_module(L, sessionlib_name, sessionlib);

@@ -554,6 +554,41 @@ handle_error:
 	return 2;
 }
 
+/**
+ * Search for a "push:" prefix in a message, received from a
+ * server using a text protocol.
+ */
+static int
+netbox_text_is_push(struct lua_State *L)
+{
+	assert(lua_gettop(L) == 2);
+	uint32_t ctypeid;
+	const char *text = *(const char **)luaL_checkcdata(L, 1, &ctypeid);
+	assert(ctypeid == luaL_ctypeid(L, "char *"));
+	uint32_t len = (uint32_t) lua_tonumber(L, 2);
+	uint32_t push_len = strlen("push:");
+	lua_pushboolean(L, len >= 5 && memcmp(text, "push:", push_len) == 0);
+	return 1;
+}
+
+/**
+ * Search for IPROTO_PUSH key in a MessagePack encoded response
+ * body. It is needed without entire message decoding, when a user
+ * wants to store raw responses and pushes in its own buffer.
+ */
+static int
+netbox_body_is_push(struct lua_State *L)
+{
+	uint32_t ctypeid;
+	const char *body = *(const char **)luaL_checkcdata(L, 1, &ctypeid);
+	assert(ctypeid == luaL_ctypeid(L, "char *"));
+	assert(mp_typeof(*body) == MP_MAP);
+	lua_pushboolean(L, mp_decode_map(&body) == 1 &&
+			   mp_typeof(*body) == MP_UINT &&
+			   mp_decode_uint(&body) == IPROTO_PUSH);
+	return 1;
+}
+
 int
 luaopen_net_box(struct lua_State *L)
 {
@@ -571,6 +606,8 @@ luaopen_net_box(struct lua_State *L)
 		{ "encode_auth",    netbox_encode_auth },
 		{ "decode_greeting",netbox_decode_greeting },
 		{ "communicate",    netbox_communicate },
+		{ "text_is_push",   netbox_text_is_push },
+		{ "body_is_push",   netbox_body_is_push },
 		{ NULL, NULL}
 	};
 	/* luaL_register_module polutes _G */

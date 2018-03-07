@@ -134,6 +134,18 @@ fio_writen(int fd, const void *buf, size_t count)
 	return 0;
 }
 
+int
+fio_write_silent(int fd, const void *buf, size_t count)
+{
+	ssize_t nwr = write(fd, buf, count);
+	if (nwr >= 0)
+		return nwr;
+	if (errno == EINTR || errno == EWOULDBLOCK || errno == EAGAIN)
+		return 0;
+	else
+		return -1;
+}
+
 ssize_t
 fio_writev(int fd, struct iovec *iov, int iovcnt)
 {
