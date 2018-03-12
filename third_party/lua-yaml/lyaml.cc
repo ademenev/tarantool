@@ -679,18 +679,15 @@ static int l_dump(lua_State *L) {
    return 1;
 }
 
-static int
-l_new(lua_State *L);
-
 static const luaL_Reg yamllib[] = {
    { "encode", l_dump },
    { "decode", l_load },
-   { "new",    l_new },
+   { "new",    lua_yaml_new_formatter },
    { NULL, NULL}
 };
 
-static int
-l_new(lua_State *L)
+int
+lua_yaml_new_formatter(lua_State *L)
 {
    struct luaL_serializer *s = luaL_newserializer(L, NULL, yamllib);
    s->has_compact = 1;

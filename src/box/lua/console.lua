@@ -9,34 +9,11 @@ local errno = require('errno')
 local urilib = require('uri')
 local yaml = require('yaml')
 
--- admin formatter must be able to encode any Lua variable
-local formatter = yaml.new()
-formatter.cfg{
-    encode_invalid_numbers = true;
-    encode_load_metatables = true;
-    encode_use_tostring    = true;
-    encode_invalid_as_nil  = true;
-}
-
 local function format(status, ...)
-    -- When storing a nil in a Lua table, there is no way to
-    -- distinguish nil value from no value. This is a trick to
-    -- make sure yaml converter correctly
-    local function wrapnull(v)
-        return v == nil and formatter.NULL or v
-    end
     local err
     if status then
-        local count = select('#', ...)
-        if count == 0 then
-            return "---\n...\n"
-        end
-        local res = {}
-        for i=1,count,1 do
-            table.insert(res, wrapnull(select(i, ...)))
-        end
         -- serializer can raise an exception
-        status, err = pcall(formatter.encode, res)
+        status, err = pcall(internal.format, ...)
         if status then
             return err
         else
@@ -44,9 +21,12 @@ local function format(status, ...)
                 tostring(err)
         end
     else
-        err = wrapnull(...)
+        err = ...
+        if err == nil then
+            err = box.NULL
+        end
     end
-    return formatter.encode({{error = err }})
+    return internal.format({ error = err })
 end
 
 --
@@ -395,4 +375,6 @@ package.loaded['console'] = {
     on_start = on_start;
     on_client_disconnect = on_client_disconnect;
     completion_handler = internal.completion_handler;
+    formatter = internal.formatter;
+    format = internal.format;
 }

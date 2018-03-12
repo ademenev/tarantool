@@ -32,6 +32,7 @@
 #include "box/lua/console.h"
 #include "lua/utils.h"
 #include "lua/fiber.h"
+#include "lua-yaml/lyaml.h"
 #include "fiber.h"
 #include "coio.h"
 #include <lua.h>
@@ -328,6 +329,32 @@ lbox_console_add_history(struct lua_State *L)
 	return 0;
 }
 
+static int
+lbox_console_format(struct lua_State *L)
+{
+	int arg_count = lua_gettop(L);
+	if (arg_count == 0) {
+		lua_pushstring(L, "---\n...\n");
+		return 1;
+	}
+	lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
+	lua_getfield(L, -1, "console");
+	lua_getfield(L, -1, "formatter");
+	lua_getfield(L, -1, "encode");
+	lua_createtable(L, arg_count, 0);
+	for (int i = 0; i < arg_count; ++i) {
+		if (lua_isnil(L, i + 1))
+			lua_getfield(L, -3, "NULL");
+		else
+			lua_pushvalue(L, i + 1);
+		lua_rawseti(L, -2, i + 1);
+	}
+	lua_call(L, 1, 1);
+	lua_insert(L, -4);
+	lua_pop(L, 3);
+	return 1;
+}
+
 void
 tarantool_lua_console_init(struct lua_State *L)
 {
@@ -336,6 +363,7 @@ tarantool_lua_console_init(struct lua_State *L)
 		{"save_history",       lbox_console_save_history},
 		{"add_history",        lbox_console_add_history},
 		{"completion_handler", lbox_console_completion_handler},
+		{"format",             lbox_console_format},
 		{NULL, NULL}
 	};
 	luaL_register_module(L, "console", consolelib);
@@ -344,6 +372,20 @@ tarantool_lua_console_init(struct lua_State *L)
 	lua_getfield(L, -1, "completion_handler");
 	lua_pushcclosure(L, lbox_console_readline, 1);
 	lua_setfield(L, -2, "readline");
+
+	lua_yaml_new_formatter(L);
+	lua_getfield(L, -1, "cfg");
+	lua_createtable(L, 0, 4);
+	lua_pushboolean(L, true);
+	lua_setfield(L, -2, "encode_invalid_numbers");
+	lua_pushboolean(L, true);
+	lua_setfield(L, -2, "encode_load_metatables");
+	lua_pushboolean(L, true);
+	lua_setfield(L, -2, "encode_use_tostring");
+	lua_pushboolean(L, true);
+	lua_setfield(L, -2, "encode_invalid_as_nil");
+	lua_call(L, 1, 0);
+	lua_setfield(L, -2, "formatter");
 }
 
 /*

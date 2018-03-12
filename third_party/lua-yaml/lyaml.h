@@ -10,6 +10,9 @@ extern "C" {
 LUALIB_API int
 luaopen_yaml(lua_State *L);
 
+int
+lua_yaml_new_formatter(lua_State *L);
+
 #ifdef __cplusplus
 }
 #endif
