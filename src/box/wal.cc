@@ -768,8 +768,16 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 			/*
 			 * Find last row from local instance id
 			 * and promote vclock.
+			 * In master-master configuration, during sudden
+			 * power-loss if data was not written to WAL but
+			 * already sent to others they will send back.
+			 * In this case we should update only local
+			 * vclock but not the replicaset one. Could be
+			 * checked by simple lsn comparison.
+			 * See #3210 for details.
 			 */
-			if ((*last)->replica_id == instance_id) {
+			if ((*last)->replica_id == instance_id &&
+			    replicaset.vclock.lsn[instance_id] < (*last)->lsn) {
 				vclock_follow(&replicaset.vclock, instance_id,
 					      (*last)->lsn);
 				break;
