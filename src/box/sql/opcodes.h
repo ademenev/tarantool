@@ -104,7 +104,7 @@
 #define OP_Close         101
 #define OP_ColumnsUsed   102
 #define OP_Sequence      103 /* synopsis: r[P2]=cursor[P1].ctr++           */
-#define OP_NextId        104 /* synopsis: r[P3]=get_max(space_index[P1]{Column[P2]}) */
+#define OP_NextId        104 /* synopsis: r[P2]=get_max(space_id[P1])      */
 #define OP_NextIdEphemeral 105 /* synopsis: r[P3]=get_max(space_index[P1]{Column[P2]}) */
 #define OP_FCopy         106 /* synopsis: reg[P2@cur_frame]= reg[P1@root_frame(OPFLAG_SAME_FRAME)] */
 #define OP_Delete        107
@@ -117,26 +117,29 @@
 #define OP_IdxReplace    114 /* synopsis: key=r[P2]                        */
 #define OP_Real          115 /* same as TK_FLOAT, synopsis: r[P2]=P4       */
 #define OP_IdxInsert     116 /* synopsis: key=r[P2]                        */
-#define OP_IdxDelete     117 /* synopsis: key=r[P2@P3]                     */
-#define OP_Clear         118 /* synopsis: space id = P1                    */
-#define OP_ResetSorter   119
-#define OP_ParseSchema2  120 /* synopsis: rows=r[P1@P2]                    */
-#define OP_ParseSchema3  121 /* synopsis: name=r[P1] sql=r[P1+1]           */
-#define OP_RenameTable   122 /* synopsis: P1 = root, P4 = name             */
-#define OP_LoadAnalysis  123
-#define OP_DropTable     124
-#define OP_DropIndex     125
-#define OP_DropTrigger   126
-#define OP_Param         127
-#define OP_FkCounter     128 /* synopsis: fkctr[P1]+=P2                    */
-#define OP_OffsetLimit   129 /* synopsis: if r[P1]>0 then r[P2]=r[P1]+max(0,r[P3]) else r[P2]=(-1) */
-#define OP_AggStep0      130 /* synopsis: accum=r[P3] step(r[P2@P5])       */
-#define OP_AggStep       131 /* synopsis: accum=r[P3] step(r[P2@P5])       */
-#define OP_AggFinal      132 /* synopsis: accum=r[P1] N=P2                 */
-#define OP_Expire        133
-#define OP_IncMaxid      134
-#define OP_Noop          135
-#define OP_Explain       136
+#define OP_SInsert       117 /* synopsis: space id = P1, key = r[P2]       */
+#define OP_SDelete       118 /* synopsis: space id = P1, key = r[P2]       */
+#define OP_SIDtoPtr      119 /* synopsis: space id = P1, space[out] = r[P2] */
+#define OP_IdxDelete     120 /* synopsis: key=r[P2@P3]                     */
+#define OP_Clear         121 /* synopsis: space id = P1                    */
+#define OP_ResetSorter   122
+#define OP_ParseSchema2  123 /* synopsis: rows=r[P1@P2]                    */
+#define OP_ParseSchema3  124 /* synopsis: name=r[P1] sql=r[P1+1]           */
+#define OP_RenameTable   125 /* synopsis: P1 = root, P4 = name             */
+#define OP_LoadAnalysis  126
+#define OP_DropTable     127
+#define OP_DropIndex     128
+#define OP_DropTrigger   129
+#define OP_Param         130
+#define OP_FkCounter     131 /* synopsis: fkctr[P1]+=P2                    */
+#define OP_OffsetLimit   132 /* synopsis: if r[P1]>0 then r[P2]=r[P1]+max(0,r[P3]) else r[P2]=(-1) */
+#define OP_AggStep0      133 /* synopsis: accum=r[P3] step(r[P2@P5])       */
+#define OP_AggStep       134 /* synopsis: accum=r[P3] step(r[P2@P5])       */
+#define OP_AggFinal      135 /* synopsis: accum=r[P1] N=P2                 */
+#define OP_Expire        136
+#define OP_IncMaxid      137
+#define OP_Noop          138
+#define OP_Explain       139
 
 /* Properties such as "out2" or "jump" that are specified in
 ** comments following the "case" for each opcode in the vdbe.c
@@ -162,11 +165,11 @@
 /*  80 */ 0x00, 0x02, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00,\
 /*  88 */ 0x00, 0x10, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,\
 /*  96 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,\
-/* 104 */ 0x20, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00,\
+/* 104 */ 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00,\
 /* 112 */ 0x00, 0x04, 0x00, 0x10, 0x04, 0x00, 0x00, 0x00,\
-/* 120 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,\
-/* 128 */ 0x00, 0x1a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,\
-/* 136 */ 0x00,}
+/* 120 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,\
+/* 128 */ 0x00, 0x00, 0x10, 0x00, 0x1a, 0x00, 0x00, 0x00,\
+/* 136 */ 0x00, 0x00, 0x00, 0x00,}
 
 /* The sqlite3P2Values() routine is able to run faster if it knows
 ** the value of the largest JUMP opcode.  The smaller the maximum

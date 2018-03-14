@@ -77,6 +77,7 @@ int tarantoolSqlite3Count(BtCursor * pCur, i64 * pnEntry);
 int tarantoolSqlite3Insert(BtCursor * pCur);
 int tarantoolSqlite3Replace(BtCursor * pCur);
 int tarantoolSqlite3Delete(BtCursor * pCur, u8 flags);
+int sql_delete_by_key(struct space *space, char *key, uint32_t key_size);
 int tarantoolSqlite3ClearTable(struct space *space);
 
 /* Rename table pTab with zNewName by inserting new tuple to _space.
@@ -112,11 +113,10 @@ int tarantoolSqlite3IdxKeyCompare(BtCursor * pCur, UnpackedRecord * pUnpacked,
 				  int *res);
 
 /*
- * The function assumes the cursor is open on _schema.
- * Increment max_id and store updated tuple in the cursor
- * object.
+ * The function assumes to be applied on _schema space.
+ * Increment max_id and store updated id in given argument.
  */
-int tarantoolSqlite3IncrementMaxid(BtCursor * pCur);
+int tarantoolSqlite3IncrementMaxid(uint64_t *space_max_id);
 
 /*
  * Render "format" array for _space entry.
@@ -150,5 +150,4 @@ int tarantoolSqlite3MakeIdxOpts(Index * index, const char *zSql, void *buf);
  * Fetch maximum value from ineger column number `fieldno` of space_id/index_id
  * Return 0 on success, -1 otherwise
  */
-int tarantoolSqlGetMaxId(BtCursor *cur, uint32_t fieldno,
-			 uint64_t * max_id);
+int tarantoolSqlGetMaxId(uint32_t space_id, uint64_t *max_id);
