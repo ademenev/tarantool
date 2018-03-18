@@ -2278,21 +2278,6 @@ sqlite3IoerrnomemError(int lineno)
 #endif
 
 
-/*
- * Enable or disable the extended result codes.
- */
-int
-sqlite3_extended_result_codes(sqlite3 * db, int onoff)
-{
-#ifdef SQLITE_ENABLE_API_ARMOR
-	if (!sqlite3SafetyCheckOk(db))
-		return SQLITE_MISUSE_BKPT;
-#endif
-	sqlite3_mutex_enter(db->mutex);
-	db->errMask = onoff ? 0xffffffff : 0xff;
-	sqlite3_mutex_leave(db->mutex);
-	return SQLITE_OK;
-}
 
 /*
  * Interface to the testing logic.

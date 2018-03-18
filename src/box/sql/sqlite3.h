@@ -1928,8 +1928,7 @@ struct sqlite3_mem_methods {
  * [extended result codes] feature of SQLite. ^The extended result
  * codes are disabled by default for historical compatibility.
 */
-SQLITE_API int
-sqlite3_extended_result_codes(sqlite3 *, int onoff);
+
 
 /*
  * CAPI3REF: Count The Number Of Rows Modified
@@ -2246,17 +2245,6 @@ sqlite3_busy_timeout(sqlite3 *, int ms);
  * reflected in subsequent calls to [sqlite3_errcode()] or
  * [sqlite3_errmsg()].
 */
-SQLITE_API int
-sqlite3_get_table(sqlite3 * db,	/* An open database */
-		  const char *zSql,	/* SQL to be evaluated */
-		  char ***pazResult,	/* Results of the query */
-		  int *pnRow,	/* Number of result rows written here */
-		  int *pnColumn,	/* Number of result columns written here */
-		  char **pzErrmsg	/* Error msg written here */
-	);
-
-SQLITE_API void
-sqlite3_free_table(char **result);
 
 /*
  * CAPI3REF: Formatted String Printing Functions
