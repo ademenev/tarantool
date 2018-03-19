@@ -94,9 +94,9 @@
 #define OP_TTransaction   91
 #define OP_ReadCookie     92
 #define OP_SetCookie      93
-#define OP_ReopenIdx      94 /* synopsis: root=P2                          */
-#define OP_OpenRead       95 /* synopsis: root=P2                          */
-#define OP_OpenWrite      96 /* synopsis: root=P2                          */
+#define OP_ReopenIdx      94 /* synopsis: index id = P2, space ptr = P3    */
+#define OP_OpenRead       95 /* synopsis: index id = P2, space ptr = P3    */
+#define OP_OpenWrite      96 /* synopsis: index id = P2, space ptr = P3    */
 #define OP_OpenTEphemeral  97 /* synopsis: nColumn = P2                     */
 #define OP_SorterOpen     98
 #define OP_SequenceTest   99 /* synopsis: if (cursor[P1].ctr++) pc = P2    */
